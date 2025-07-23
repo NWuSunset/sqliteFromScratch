@@ -6,10 +6,10 @@
 
 
 #include <stdbool.h>
-#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <stdint.h>
+#include <stdio.h>
 
 
 
@@ -90,8 +90,17 @@ InputBuffer* new_input_buffer() {
     return input_buffer;
 }
 
+//finding where we are writing memory for a particular row
 void* row_slot(Table* table, uint32_t row_num) {
-
+    uint32_t page_num = row_num / ROWS_PER_PAGE;
+    void* page = table->pages[page_num];
+    if (page == NULL) {
+        //Allocate mem only when accessing the page
+        page = table->pages[page_num] = malloc(PAGE_SIZE);
+    }
+    uint32_t row_offset = row_num % ROWS_PER_PAGE;
+    uint32_t byte_offset = row_offset * ROW_SIZE;
+    return page + byte_offset;
 }
 
 void print_prompt() {
@@ -103,7 +112,6 @@ void read_input(InputBuffer* input_buffer) {
 
     //get the number of bytes read (includes newline (\n) character)
     ssize_t bytes_read = getline(&(input_buffer->buffer), &(input_buffer->buffer_length), stdin); //stdin is standard input stream (standard input source)
-
     if (bytes_read <= 0 ) {
         printf("Error reading input\n");
         exit(EXIT_FAILURE);
@@ -149,14 +157,32 @@ PrepareResult prepare_statement(InputBuffer* input_buffer, Statement* statement)
     return PREPARE_UNRECOGNIZED_STATEMENT;
 }
 
-void execute_statement(Statement* statement) {
+ExecuteResult execute_insert(Statement* statement, Table* table) {
+    if (table->num_rows >= TABLE_MAX_ROWS) {
+        return EXECUTE_TABLE_FULL;
+    }
+
+    Row* row_to_insert = &(statement->row_to_insert);
+
+    serialize_row(row_to_insert, row_slot(table, table->num_rows));
+    table->num_rows += 1;
+
+    return EXECUTE_SUCCESS;
+}
+
+ExecuteResult execute_select(Statement* statement, Table* table) {
+    Row row;
+    for (uint32_t i = 0; i < table->num_rows; i++) {
+        deserialize_row(row_slot(table, i), &row);
+        print_row(&row);
+    }
+    return EXECUTE_SUCCESS;
+}
+
+ExecuteResult execute_statement(Statement* statement, Table* table) {
     switch (statement->type) {
         case (STATEMENT_INSERT):
-            printf("Insert Called. \n");
-            break;
-        case (STATEMENT_SELECT):
-            printf("Select CALLEd. \n");
-            break;
+            return execute_insert(statement, table);
     }
 }
 
